@@ -5,12 +5,7 @@ import math
 
 
 class ReputationStore:
-    """In-memory + optional SQLite-backed reputation tracker.
-
-    Score starts at 1.0 and is adjusted by:
-    - Absolute deviation from consensus (penalizes outliers)
-    - Confidence calibration (rewards well-calibrated sources)
-    """
+    """In-memory reputation tracker with optional persistence hooks."""
 
     def __init__(self):
         self._scores: Dict[str, float] = {}
@@ -19,22 +14,26 @@ class ReputationStore:
     def get(self, source_id: str) -> float:
         return self._scores.get(source_id, 1.0)
 
+    def get_observations(self) -> Dict[str, int]:
+        return dict(self._observations)
+
+    def load(self, scores: Dict[str, float], observations: Dict[str, int]):
+        self._scores.update(scores)
+        self._observations.update(observations)
+
     def update(self, source_id: str, reported_price: float, consensus_price: float, confidence: float):
         """Update reputation after a consensus round."""
         obs = self._observations.get(source_id, 0) + 1
         self._observations[source_id] = obs
 
         deviation = abs(reported_price - consensus_price)
-        # Normalize deviation relative to confidence (if confidence is tiny, be stricter)
         rel = deviation / max(confidence, 0.01)
 
-        # Penalty grows with relative deviation; reward for being inside confidence
         if rel <= 1.0:
-            delta = 0.05 * (1.0 - rel)  # small positive
+            delta = 0.08 * (1.0 - rel)
         else:
-            delta = -0.1 * min(rel - 1.0, 5.0)  # capped negative
+            delta = -0.12 * min(rel - 1.0, 4.0)
 
-        # Learning rate decreases with more observations
         lr = 1.0 / math.sqrt(obs)
         current = self.get(source_id)
         new_score = max(0.1, min(5.0, current + delta * lr))
